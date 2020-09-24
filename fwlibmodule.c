@@ -1,17 +1,21 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "external/fwlib/fwlib32.h"
 
 unsigned short libh;
+char *AXIS_UNITH[] = {"mm",          "inch",   "degree",   "mm/minute",
+                      "inch/minute", "rpm",    "mm/round", "inch/round",
+                      "%",           "Ampere", "Second"};
 
 static PyObject *allclibhndl3(PyObject *self, PyObject *args)
 {
-  long timeout = 10;
+  long timeout; // 10
   char *device_ip;
-  unsigned short device_port = 8193;
+  unsigned short device_port; // 8193
 
-  if (!PyArg_ParseTuple(args, "s", &device_ip))
+  if (!PyArg_ParseTuple(args, "sHl", &device_ip, &device_port, &timeout))
     return NULL;
 
   printf("Connecting to %s:%d\n", device_ip, device_port);
@@ -39,6 +43,10 @@ static PyObject *rdcncid(PyObject *self, PyObject *args)
   PyObject *m;
   unsigned long cncIDs[4];
   char cncID[36];
+
+  if (!PyArg_ParseTuple(args, ""))
+    return NULL;
+
   if (cnc_rdcncid(libh, cncIDs) != EW_OK)
   {
     PyErr_SetString(PyExc_Exception, "Failed to get cnc id!");
@@ -58,36 +66,136 @@ static PyObject *rdaxisname(PyObject *self, PyObject *args)
 {
   PyObject *m;
 
+  bool hasAxisData;
   short axisCount = MAX_AXIS;
+  short count;
+  const int num = 1;
+  short len = MAX_AXIS;
+  short inprec[MAX_AXIS];
+  short outprec[MAX_AXIS];
+  char axisID[2];
+  char axisName[4];
+  char suffix[2];
+  short types[] = {1};
   ODBAXISNAME axes[MAX_AXIS];
-  if (cnc_rdaxisname(libh, &axisCount, axes) != EW_OK)
-  {
+  ODBAXDT axisData[MAX_AXIS * num];
+
+  if (!PyArg_ParseTuple(args, ""))
+    return NULL;
+
+  hasAxisData = cnc_rdaxisdata(libh, 1, types, num, &len, axisData) == EW_OK;
+
+  if (cnc_getfigure(libh, 0, &count, inprec, outprec) != EW_OK ||
+      cnc_rdaxisname(libh, &axisCount, axes) != EW_OK) {
+    PyErr_SetString(PyExc_Exception, "Failed to get axis info\n");
     return NULL;
   }
 
-  return NULL;
+  m = PyTuple_New(axisCount);
+  for (int i = 0; i < axisCount; i++) {
+    PyObject *d_axis = PyDict_New();
+    sprintf(axisID, "%c", axes[i].name);
+    PyObject *d_axis_id = PyUnicode_FromString(axisID);
+    PyDict_SetItemString(d_axis, "id", d_axis_id);
+
+    double divisor = pow((long double)10.0, (long double)inprec[i]);
+    PyObject *d_axis_divisor = PyFloat_FromDouble(divisor);
+    PyDict_SetItemString(d_axis, "divisor", d_axis_divisor);
+
+    PyObject *d_axis_index = PyLong_FromLong(i);
+    PyDict_SetItemString(d_axis, "index", d_axis_index);
+
+    sprintf(suffix, "%c", axes[i].suff);
+    PyObject *d_axis_suffix = PyUnicode_FromString(suffix);
+    PyDict_SetItemString(d_axis, "suffix", d_axis_suffix);
+
+    if (hasAxisData) {
+      sprintf(axisName, "%.4s", axisData[i].name);
+      PyObject *d_axis_name = PyUnicode_FromString(axisName);
+      PyDict_SetItemString(d_axis, "name", d_axis_name);
+
+      PyObject *d_axis_flag = PyLong_FromLong(axisData[i].flag);
+      PyDict_SetItemString(d_axis, "flag", d_axis_flag);
+
+      short unit = axisData[i].unit;
+      PyObject *d_axis_unit = PyLong_FromLong(unit);
+      PyDict_SetItemString(d_axis, "unit", d_axis_unit);
+
+      PyObject *d_axis_unith = PyUnicode_FromString(AXIS_UNITH[unit]);
+      PyDict_SetItemString(d_axis, "unith", d_axis_unith);
+
+      PyObject *d_axis_decimal = PyLong_FromLong(axisData[i].dec);
+      PyDict_SetItemString(d_axis, "decimal", d_axis_decimal);
+    }
+    PyTuple_SetItem(m, i, d_axis);
+  }
+
+  return m;
 }
 
 static PyObject *sysinfo(PyObject *self, PyObject *args)
 {
   PyObject *m;
   ODBSYS sysinfo;
+
   char cnc_type[3]; /* cnc type <ascii char> */
-  char mt_type[3];  /* M/T/TT <ascii char> */
-  char series[5];   /* series NO. <ascii char> */
-  char version[5];  /* version NO.<ascii char> */
-  char axes[3];     /* axis number<ascii char> */
+  PyObject *d_cnc_type;
+
+  char mt_type[3]; /* M/T/TT <ascii char> */
+  PyObject *d_mt_type;
+
+  char series[5]; /* series NO. <ascii char> */
+  PyObject *d_series;
+
+  char version[5]; /* version NO.<ascii char> */
+  PyObject *d_version;
+
+  char axes[3]; /* axis number<ascii char> */
+  PyObject *d_axes;
+
+  PyObject *d_addinfo;
+  PyObject *d_max_axis;
+
+  if (!PyArg_ParseTuple(args, ""))
+    return NULL;
 
   // library handle.  needs to be closed when finished.
   if (cnc_sysinfo(libh, &sysinfo) != EW_OK)
   {
     PyErr_SetString(PyExc_Exception, "Failed to get cnc info!");
+    return NULL;
   }
 
   // short   addinfo ;       /* additional information  */
   // short   max_axis ;      /* maximum axis number */
+  m = PyDict_New();
 
-  // Py_RETURN_NONE;
+  d_addinfo = PyLong_FromLong(sysinfo.addinfo);
+  PyDict_SetItemString(m, "addinfo", d_addinfo);
+
+  d_max_axis = PyLong_FromLong(sysinfo.max_axis);
+  PyDict_SetItemString(m, "max_axis", d_max_axis);
+
+  sprintf(cnc_type, "%.2s", sysinfo.cnc_type);
+  d_cnc_type = PyUnicode_FromString(cnc_type);
+  PyDict_SetItemString(m, "cnc_type", d_cnc_type);
+
+  sprintf(mt_type, "%.2s", sysinfo.mt_type);
+  d_mt_type = PyUnicode_FromString(mt_type);
+  PyDict_SetItemString(m, "mt_type", d_mt_type);
+
+  sprintf(series, "%.4s", sysinfo.series);
+  d_series = PyUnicode_FromString(series);
+  PyDict_SetItemString(m, "series", d_series);
+
+  sprintf(version, "%.4s", sysinfo.version);
+  d_version = PyUnicode_FromString(version);
+  PyDict_SetItemString(m, "version", d_version);
+
+  sprintf(axes, "%.2s", sysinfo.axes);
+  d_axes = PyUnicode_FromString(axes);
+  PyDict_SetItemString(m, "axes", d_axes);
+
   return m;
 }
 
@@ -135,5 +243,3 @@ PyMODINIT_FUNC PyInit_fwlib(void)
 
   return m;
 }
-
-// deinit
