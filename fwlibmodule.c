@@ -1,7 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include "external/fwlib/fwlib32.h"
 
 unsigned short libh;
@@ -9,18 +9,16 @@ char *AXIS_UNITH[] = {"mm",          "inch",   "degree",   "mm/minute",
                       "inch/minute", "rpm",    "mm/round", "inch/round",
                       "%",           "Ampere", "Second"};
 
-static PyObject *allclibhndl3(PyObject *self, PyObject *args)
-{
-  long timeout; // 10
+static PyObject *allclibhndl3(PyObject *self, PyObject *args) {
+  long timeout;  // 10
   char *device_ip;
-  unsigned short device_port; // 8193
+  unsigned short device_port;  // 8193
 
   if (!PyArg_ParseTuple(args, "sHl", &device_ip, &device_port, &timeout))
     return NULL;
 
-  printf("Connecting to %s:%d\n", device_ip, device_port);
-  if (cnc_allclibhndl3(device_ip, device_port, timeout, &libh) != EW_OK)
-  {
+  // printf("Connecting to %s:%d\n", device_ip, device_port);
+  if (cnc_allclibhndl3(device_ip, device_port, timeout, &libh) != EW_OK) {
     PyErr_SetString(PyExc_Exception, "Failed to connect to cnc!");
     return NULL;
   }
@@ -28,32 +26,35 @@ static PyObject *allclibhndl3(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
-static PyObject *freelibhndl(PyObject *self, PyObject *args)
-{
-  if (cnc_freelibhndl(libh) != EW_OK)
-  {
+static PyObject *freelibhndl(PyObject *self, PyObject *args) {
+  if (cnc_freelibhndl(libh) != EW_OK) {
     PyErr_SetString(PyExc_Exception, "Failed to free lib handle!");
     return NULL;
   }
   Py_RETURN_NONE;
 }
 
-static PyObject *rdcncid(PyObject *self, PyObject *args)
-{
+static PyObject *rdcncid(PyObject *self, PyObject *args) {
   PyObject *m;
-  unsigned long cncIDs[4];
+  unsigned long cncIDs[4] = {0, 0, 0, 0};
   char cncID[36];
 
-  if (!PyArg_ParseTuple(args, ""))
-    return NULL;
+  if (!PyArg_ParseTuple(args, "")) return NULL;
 
-  if (cnc_rdcncid(libh, cncIDs) != EW_OK)
-  {
+  if (cnc_rdcncid(libh, cncIDs) != EW_OK) {
     PyErr_SetString(PyExc_Exception, "Failed to get cnc id!");
     return NULL;
   }
 
-  sprintf(cncID, "%08lx-%08lx-%08lx-%08lx", cncIDs[0], cncIDs[1], cncIDs[2], cncIDs[3]);
+  if (sizeof(long) == 4) {
+    sprintf(cncID, "%08lx-%08lx-%08lx-%08lx", cncIDs[0] & 0xffffffff,
+            cncIDs[1] & 0xffffffff, cncIDs[2] & 0xffffffff,
+            cncIDs[3] & 0xffffffff);
+  } else {
+    sprintf(cncID, "%08lx-%08lx-%08lx-%08lx", cncIDs[0] & 0xffffffff,
+            cncIDs[0] >> 32 & 0xffffffff, cncIDs[1] & 0xffffffff,
+            cncIDs[1] >> 32 & 0xffffffff);
+  }
 
   m = PyDict_New();
   PyObject *id = PyUnicode_FromString(cncID);
@@ -62,28 +63,28 @@ static PyObject *rdcncid(PyObject *self, PyObject *args)
   return m;
 }
 
-static PyObject *rdaxisname(PyObject *self, PyObject *args)
-{
+static PyObject *rdaxisname(PyObject *self, PyObject *args) {
   PyObject *m;
 
-  bool hasAxisData;
-  short axisCount = MAX_AXIS;
-  short count;
   const int num = 1;
   short len = MAX_AXIS;
+  short axisCount = MAX_AXIS;
+  char axis_id[10];
+  char axis_name[20];
+  char axis_suffix[10];
+  bool hasAxisData;
+  short count;
   short inprec[MAX_AXIS];
   short outprec[MAX_AXIS];
-  char axisID[2];
-  char axisName[4];
-  char suffix[2];
   short types[] = {1};
   ODBAXISNAME axes[MAX_AXIS];
-  ODBAXDT axisData[MAX_AXIS * num];
+  ODBAXDT *axisData;
 
-  if (!PyArg_ParseTuple(args, ""))
-    return NULL;
+  if (!PyArg_ParseTuple(args, "")) return NULL;
 
-  hasAxisData = cnc_rdaxisdata(libh, 1, types, num, &len, axisData) == EW_OK;
+  axisData = calloc(MAX_AXIS, sizeof(ODBAXDT));
+  hasAxisData =
+      cnc_rdaxisdata(libh, 1, (short *)types, num, &len, axisData) == EW_OK;
 
   if (cnc_getfigure(libh, 0, &count, inprec, outprec) != EW_OK ||
       cnc_rdaxisname(libh, &axisCount, axes) != EW_OK) {
@@ -93,25 +94,26 @@ static PyObject *rdaxisname(PyObject *self, PyObject *args)
 
   m = PyTuple_New(axisCount);
   for (int i = 0; i < axisCount; i++) {
+    double divisor;
     PyObject *d_axis = PyDict_New();
-    sprintf(axisID, "%c", axes[i].name);
-    PyObject *d_axis_id = PyUnicode_FromString(axisID);
+    sprintf(axis_id, "%c", axes[i].name);
+    PyObject *d_axis_id = PyUnicode_FromString(axis_id);
     PyDict_SetItemString(d_axis, "id", d_axis_id);
 
-    double divisor = pow((long double)10.0, (long double)inprec[i]);
+    divisor = pow((long double)10.0, (long double)inprec[i]);
     PyObject *d_axis_divisor = PyFloat_FromDouble(divisor);
     PyDict_SetItemString(d_axis, "divisor", d_axis_divisor);
 
     PyObject *d_axis_index = PyLong_FromLong(i);
     PyDict_SetItemString(d_axis, "index", d_axis_index);
 
-    sprintf(suffix, "%c", axes[i].suff);
-    PyObject *d_axis_suffix = PyUnicode_FromString(suffix);
+    sprintf(axis_suffix, "%c", axes[i].suff);
+    PyObject *d_axis_suffix = PyUnicode_FromString(axis_suffix);
     PyDict_SetItemString(d_axis, "suffix", d_axis_suffix);
 
     if (hasAxisData) {
-      sprintf(axisName, "%.4s", axisData[i].name);
-      PyObject *d_axis_name = PyUnicode_FromString(axisName);
+      sprintf(axis_name, "%.4s", axisData[i].name);
+      PyObject *d_axis_name = PyUnicode_FromString(axis_name);
       PyDict_SetItemString(d_axis, "name", d_axis_name);
 
       PyObject *d_axis_flag = PyLong_FromLong(axisData[i].flag);
@@ -121,7 +123,8 @@ static PyObject *rdaxisname(PyObject *self, PyObject *args)
       PyObject *d_axis_unit = PyLong_FromLong(unit);
       PyDict_SetItemString(d_axis, "unit", d_axis_unit);
 
-      PyObject *d_axis_unith = PyUnicode_FromString(AXIS_UNITH[unit]);
+      PyObject *d_axis_unith = PyUnicode_FromString(
+          (unit > -1 && unit < sizeof(AXIS_UNITH)) ? AXIS_UNITH[unit] : "");
       PyDict_SetItemString(d_axis, "unith", d_axis_unith);
 
       PyObject *d_axis_decimal = PyLong_FromLong(axisData[i].dec);
@@ -129,12 +132,12 @@ static PyObject *rdaxisname(PyObject *self, PyObject *args)
     }
     PyTuple_SetItem(m, i, d_axis);
   }
+  free(axisData);
 
   return m;
 }
 
-static PyObject *sysinfo(PyObject *self, PyObject *args)
-{
+static PyObject *sysinfo(PyObject *self, PyObject *args) {
   PyObject *m;
   ODBSYS sysinfo;
 
@@ -156,12 +159,10 @@ static PyObject *sysinfo(PyObject *self, PyObject *args)
   PyObject *d_addinfo;
   PyObject *d_max_axis;
 
-  if (!PyArg_ParseTuple(args, ""))
-    return NULL;
+  if (!PyArg_ParseTuple(args, "")) return NULL;
 
   // library handle.  needs to be closed when finished.
-  if (cnc_sysinfo(libh, &sysinfo) != EW_OK)
-  {
+  if (cnc_sysinfo(libh, &sysinfo) != EW_OK) {
     PyErr_SetString(PyExc_Exception, "Failed to get cnc info!");
     return NULL;
   }
@@ -200,43 +201,48 @@ static PyObject *sysinfo(PyObject *self, PyObject *args)
 }
 
 static PyMethodDef methods[] = {
-    {"allclibhndl3", allclibhndl3, METH_VARARGS, "Allocates the library handle and connects to CNC that has the specified IP address or the Host Name."},
-    {"freelibhndl", freelibhndl, METH_VARARGS, "Frees the library handle which was used by the Data window library."},
+    {"allclibhndl3", allclibhndl3, METH_VARARGS,
+     "Allocates the library handle and connects to CNC that has the specified "
+     "IP address or the Host Name."},
+    {"freelibhndl", freelibhndl, METH_VARARGS,
+     "Frees the library handle which was used by the Data window library."},
     {"rdcncid", rdcncid, METH_VARARGS, "Reads the CNC ID number."},
-    {"rdaxisname", rdaxisname, METH_VARARGS, "Reads various data relating to servo axis/spindle."},
-    {"sysinfo", sysinfo, METH_VARARGS, "Reads system information such as kind of CNC system, Machining(M) or Turning(T), series and version of CNC system software and number of the controlled axes."},
+    {"rdaxisname", rdaxisname, METH_VARARGS,
+     "Reads various data relating to servo axis/spindle."},
+    {"sysinfo", sysinfo, METH_VARARGS,
+     "Reads system information such as kind of CNC system, Machining(M) or "
+     "Turning(T), series and version of CNC system software and number of the "
+     "controlled axes."},
     {NULL, NULL, 0, NULL}};
 
-void cleanup()
-{
+void cleanup() {
   // clean up fwlib stuff
   cnc_freelibhndl(libh);
   cnc_exitprocess();
 }
 
-static struct PyModuleDef fwlibmodule = {PyModuleDef_HEAD_INIT,
-                                         "fwlib", /* name of module */
-                                         "",      /* module documentation, may be NULL */
-                                         -1,      /* size of per-interpreter state of the module, or -1 if the module keeps state in global variables. */
-                                         methods, /* a pointer to a table of module-level functions */
-                                         NULL,    /* An array of slot definitions for multi-phase initialization */
-                                         NULL,    /* A traversal function to call during GC traversal of the module object */
-                                         NULL,    /* A clear function to call during GC clearing of the module object */
-                                         cleanup};
+static struct PyModuleDef fwlibmodule = {
+    PyModuleDef_HEAD_INIT,
+    "fwlib", /* name of module */
+    "",      /* module documentation, may be NULL */
+    -1,      /* size of per-interpreter state of the module, or -1 if the module
+                keeps state in global variables. */
+    methods, /* a pointer to a table of module-level functions */
+    NULL,    /* An array of slot definitions for multi-phase initialization */
+    NULL,    /* A traversal function to call during GC traversal of the module
+                object */
+    NULL, /* A clear function to call during GC clearing of the module object */
+    cleanup};
 
-PyMODINIT_FUNC PyInit_fwlib(void)
-{
+PyMODINIT_FUNC PyInit_fwlib(void) {
   PyObject *m;
 
   m = PyModule_Create(&fwlibmodule);
-  if (m == NULL)
-  {
+  if (m == NULL) {
     return NULL;
   }
 
-  if (cnc_startupprocess(0, "focas.log") != EW_OK)
-  {
-    fprintf(stderr, "Failed to create required log file!\n");
+  if (cnc_startupprocess(0, "focas.log") != EW_OK) {
     PyErr_SetString(PyExc_Exception, "Failed to create required log file!\n");
     return NULL;
   }
