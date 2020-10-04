@@ -1,0 +1,4 @@
+__pycache__/
+_fwlib32.so
+fwlib32.py
+fwlib32_wrap.c

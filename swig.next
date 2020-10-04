@@ -1,0 +1,38 @@
+short cnc_rdaxisdata( unsigned short /* lib handle */, short /* path */, short * /* types array */, short /* axis num */, short /* len */, ODBAXDT * /* result interface */);
+struct odbaxdt {
+    char    name[4];    /* axis name */
+    long    data;       /* position data */
+    short   dec;        /* decimal position */
+    short   unit;       /* data unit */
+    short   flag;       /* flags */
+    short   reserve;    /* reserve */
+};
+%pythoncode %{
+def rdaxisdata():
+  cncids = [0 for _ in range(4)]
+  ret = cnc_rdcncid(fwlib.cvar.libh, cncids)
+  if ret:
+    raise Exception("freelibhndl failed with " + ret)
+  return cncids
+%}
+
+short cnc_getfigure( unsigned short /* lib handle */, short /* 0 */, short * /* count */, short * /* inprec */, short * /* outprec */);
+
+short cnc_rdaxisname( unsigned short /* lib handle */, short * /* axisCount */, ODBAXISNAME * /* axes */);
+struct odbaxisname {
+    char name;          /* axis name */
+    char suff;          /* suffix */
+};
+
+short cnc_sysinfo( unsigned short /* lib handle */, ODBSYS * /* sysinfo */);
+struct odbsys {
+    short   addinfo ;       /* additional information  */
+    short   max_axis ;      /* maximum axis number */
+    char    cnc_type[2] ;   /* cnc type <ascii char> */
+    char    mt_type[2] ;    /* M/T/TT <ascii char> */
+    char    series[4] ;     /* series NO. <ascii char> */
+    char    version[4] ;    /* version NO.<ascii char> */
+    char    axes[2] ;       /* axis number<ascii char> */
+};
+
+
