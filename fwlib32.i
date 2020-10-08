@@ -16,37 +16,26 @@ def startupprocess(log_level = 0, log_filename = "focas.log"):
   return
 %}
 
-/*
-%typemap(in,numinputs=1) libh* (unsigned short tmp) %{
-  $1 = &tmp;
-%}
-
-%typemap(argout) libh* (PyObject* o) %{
-  o = PyLong_FromLong($1)
-  $result = SWIG_Python($result, o)
-%}
-*/
-
 %apply short *OUTPUT { unsigned short *libh };
 
-%typemap(argout) libh* %{
-  $result = PyLong_FromUnsignedLong($1)
-%}
+%typemap(in) unsigned short libh {
+  $1 = (unsigned short) PyLong_AsUnsignedLong($input);
+}
 
-extern short cnc_allclibhndl3( const char * /* device ip */, unsigned short /* device port */, long /* timeout */, unsigned short *libh /* lib handle*/);
+%typemap(out) unsigned short libh {
+  $result = PyLong_FromUnsignedLong($1);
+}
+
+extern short cnc_allclibhndl3( const char * /* device ip */, unsigned short /* device port */, long /* timeout */, unsigned short *OUTPUT /* lib handle*/);
 %pythoncode %{
 def allclibhndl3(device_ip, device_port = 8193, timeout = 10):
   ret, libh = cnc_allclibhndl3(device_ip, device_port, timeout)
-  print('ret', ret)
   if ret:
     raise Exception("allclibhndl3 failed with " + ret)
   return libh
 %}
 
-%typemap(in) unsigned short {
-  $1 = (unsigned short) PyLong_AsUnsignedLong($input);
-}
-extern short cnc_freelibhndl( unsigned short /* lib handle */);
+extern short cnc_freelibhndl( unsigned short libh/* lib handle */);
 %pythoncode %{
 def freelibhndl(libh: int):
   ret = cnc_freelibhndl(libh)
@@ -57,9 +46,9 @@ def freelibhndl(libh: int):
 
 extern short cnc_rdcncid( unsigned short /* lib handle */, unsigned long * /* cnc id array long[4] */);
 %pythoncode %{
-def rdcncid():
+def rdcncid(libh):
   cncids = [0 for _ in range(4)]
-  ret = cnc_rdcncid(_fwlib32.cvar.libh, cncids)
+  ret = cnc_rdcncid(libh, cncids)
   if ret:
     raise Exception("freelibhndl failed with " + ret)
   return cncids
@@ -74,7 +63,13 @@ def exitprocess():
   return
 %}
 
-extern short cnc_sysinfo( unsigned short libh /* lib handle */, ODBSYS *OUTPUT /* sysinfo */);
+%typemap(in) struct odbsys *sysinfo (struct odbsys temp) {
+  $1 = &temp;
+}
+%typemap(argout) struct odbsys *sysinfo {
+  $result = $1;
+}
+extern short cnc_sysinfo( unsigned short libh /* lib handle */, struct odbsys *sysinfo /* sysinfo */);
 extern struct odbsys {
     short   addinfo;       /* additional information  */
     short   max_axis;      /* maximum axis number */
@@ -86,7 +81,9 @@ extern struct odbsys {
 };
 %pythoncode %{
 def sysinfo(libh: int):
-  ret, o = cnc_sysinfo(libh)
+  o = odbsys()
+  print(o)
+  ret = cnc_sysinfo(libh, o)
   if ret:
     raise Exception("sysinfo failed with " + ret)
   return o
@@ -121,6 +118,7 @@ extern struct odbaxisname {
     char suff;          /* suffix */
 };
 
+/*
 %pythoncode %{
 def exitprocess():
   sysinfo = _fwlib32.odbsys()
@@ -129,3 +127,4 @@ def exitprocess():
     raise Exception("exitprocess failed with " + ret)
   return odbsys
 %}
+*/
